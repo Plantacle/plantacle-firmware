@@ -1,41 +1,58 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
+#include <ESP8266WiFi.h>          //ESP8266 Core WiFi Library (you most likely already have this in your sketch)
+#include <DNSServer.h>            //Local DNS Server used for redirecting all requests to the configuration portal
+#include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
+#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
 #include <PubSubClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include "Hash.h"
 
+const String mac = WiFi.macAddress();
+const String serialNumber = sha1(mac);
 
-const char *ssid =  "Stads-Lab";     // replace with your wifi ssid and wpa2 key
-const char *pass =  "initialkey4iot";
-const char *mqtt_server = "plantacle.com";
+const String mqtt_server = "plantacle.com";
+
+const String topic = "/plantacle/" + serialNumber;
 
 WiFiClient espClient;
-PubSubClient client(espClient);
+PubSubClient mqttClient(espClient);
 long lastMsg = 0;
 char msg[50];
 
+
+#define ONE_WIRE_BUS D2
 int humidityPin = A0;
 int humidityValue = 0;
 int humidityPercent = 0;
 
+// Setup a oneWire instance to communicate with any OneWire devices
+// (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature sensors(&oneWire);
+WiFiManager wifiManager;
+
 void setup()
 {
   Serial.begin(9600);
-  delay(10);
 
-  Serial.println("Connecting to ");
-  Serial.println(ssid);
+  String shortenedSerialNumber = serialNumber;
+  shortenedSerialNumber.remove(0,20);
+  const String APName = "Plantacle-" + shortenedSerialNumber;
 
-  WiFi.begin(ssid, pass);
-  while (WiFi.status() != WL_CONNECTED)
+  wifiManager.setConfigPortalTimeout(30);
+  wifiManager.autoConnect(APName.c_str());
+  if (WiFi.status() != WL_CONNECTED)
   {
-    delay(500);
-    Serial.print(".");
+    ESP.restart();
   }
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println();
-  client.setServer(mqtt_server, 1883);
-  client.connect("whatever", "plantacle", "123456789");
-  Serial.println(client.state());  
+
+  mqttClient.setServer(mqtt_server.c_str(), 1883);
+  mqttClient.connect("whatever", "plantacle", "123456789");
+  Serial.print("MQQT connection state: ");
+  Serial.println(mqttClient.state());
+  sensors.begin(); // initialize dallas sensors
 }
 
 void loop()
@@ -43,14 +60,30 @@ void loop()
   delay(2000); /* Delay of amount equal to sampling period */
   humidityValue = analogRead(humidityPin);
   humidityPercent = ((float)humidityValue / (float)950) * 100; // 950 is the max value of the sensor
-  float temperature = 20; /* Get temperature value */
-  // Serial.print(dht.getStatusString());/* Print status of communication */
-  // Serial.println("Humidity: ");
-  // Serial.println(humidityPercent);
-  // Serial.println("Temperature: ");
-  // Serial.println(temperature);
-  const char* topic = "/plantacle/example";
+  sensors.requestTemperatures();
+  float temperature = sensors.getTempCByIndex(0); /* Get temperature value */
   const String json = "{\"temperature\": " + String(temperature, 2) + ", \"humidity\": " + String(humidityPercent) + " }";
   Serial.println(json);
-  client.publish(topic, json.c_str());
+  mqttClient.publish(topic.c_str(), json.c_str());
+  Serial.print("MQTT connection state: ");
+  Serial.println(mqttClient.state());
+  Serial.print("WiFi status: ");
+  Serial.println(WiFi.status());
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.print("WiFi disconnected! Reconnecting.");
+    while (WiFi.status() != WL_CONNECTED)
+    {
+      delay(500);
+      Serial.print(".");
+    }
+    Serial.println();
+  }
+  if (!mqttClient.connected())
+  {
+    Serial.println("MQTT disconnected! Trying reconnect.");
+    mqttClient.connect("whatever", "plantacle", "123456789");
+  }
+  
+  
 }
