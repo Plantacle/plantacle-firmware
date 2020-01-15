@@ -21,7 +21,7 @@ long lastMsg = 0;
 char msg[50];
 
 
-#define ONE_WIRE_BUS D2
+#define ONE_WIRE_BUS 4
 int humidityPin = A0;
 int humidityValue = 0;
 int humidityPercent = 0;
@@ -49,7 +49,7 @@ void setup()
   }
 
   mqttClient.setServer(mqtt_server.c_str(), 1883);
-  mqttClient.connect("whatever", "plantacle", "123456789");
+  mqttClient.connect(serialNumber.c_str(), "plantacle", "123456789");
   Serial.print("MQQT connection state: ");
   Serial.println(mqttClient.state());
   sensors.begin(); // initialize dallas sensors
@@ -57,7 +57,7 @@ void setup()
 
 void loop()
 {
-  delay(2000); /* Delay of amount equal to sampling period */
+  delay(10000); /* Delay of amount equal to sampling period */
   humidityValue = analogRead(humidityPin);
   humidityPercent = ((float)humidityValue / (float)950) * 100; // 950 is the max value of the sensor
   sensors.requestTemperatures();
